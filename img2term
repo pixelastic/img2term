@@ -1,0 +1,109 @@
+#!/usr/bin/env ruby
+require 'tempfile'
+require 'shellwords'
+
+# Converts any image to a terminal version of it
+class CatImg
+  def initialize(*args)
+    @inputs = args
+  end
+
+  # Given an image file, will return its dimensions
+  def image_dimensions(input)
+    command = "convert #{input.shellescape} -print '%wx%h\n' /dev/null"
+    `#{command}`.strip.split('x').map(&:to_i)
+  end
+
+  # Resize image in /tmp
+  def resize(input, width, height)
+    tmp_file = Tempfile.new('catimg')
+    filepath = tmp_file.path
+    `convert #{input.shellescape} -resize #{width}x#{height} #{filepath}`
+    filepath
+  end
+
+  # Returns the current terminal dimensions
+  def terminal_dimensions
+    command = 'stty size'
+    height, width = `#{command}`.strip.split(' ').map(&:to_i)
+    [width, height]
+  end
+
+  # Given a red,green,blue value, will return the ANSI color code
+  def ansi_color(red, green, blue)
+    red = (6 * (red.to_i / 256.0)).to_i
+    green = (6 * (green.to_i / 256.0)).to_i
+    blue = (6 * (blue.to_i / 256.0)).to_i
+    index = 16 + red * 36 + green * 6 + blue
+    index
+  end
+
+  def ansi_bg(color)
+    "\x1b[48;5;#{color}m"
+  end
+
+  def ansi_fg(color)
+    "\x1b[38;5;#{color}m"
+  end
+
+  # Return a flat array of all pixels of the image, with the matching ANSI code
+  def flat_array(input)
+    raw = `convert #{input.shellescape} txt:- | tail -n +2`.strip
+    array = []
+    raw.each_line do |line|
+      _, rgb = line.split(' ')
+      red, green, blue = rgb.tr('()', '').split(',')
+      ansi = ansi_color(red, green, blue)
+      array.push(ansi)
+    end
+    array
+  end
+
+  # Given an image file, will display it on screen
+  def draw_image(input)
+    img_width, img_height = image_dimensions(input)
+    term_width, = terminal_dimensions
+
+    # If image too big to be displayed, we resize it first
+    if img_width > term_width
+      # Resize the image so it fits in the term width, but keep the same ratio
+      ratio = img_width / term_width.to_f
+      new_height = (img_height / ratio).to_i
+      new_width = term_width
+
+      input = resize(input, new_width, new_height)
+      img_width, img_height = image_dimensions(input)
+    end
+
+    line_count = (img_height / 2).to_i
+
+    array = flat_array(input)
+    result = "\n"
+
+    line_count.times do |line|
+      result << draw_line(line, img_width, array)
+    end
+    result
+  end
+
+  def draw_line(line, width, array)
+    character = '▄' # Special char to use both fg and bg
+    result = ''
+    width.times do |column|
+      bg_index = (2 * line) * width + column
+      fg_index = (2 * line + 1) * width + column
+      bg = array[bg_index]
+      fg = array[fg_index]
+      result << "#{ansi_bg(bg)}#{ansi_fg(fg)}#{character}\x1b[0m"
+    end
+    result << "\n"
+    result
+  end
+
+  def run
+    @inputs.each do |input|
+      puts draw_image(input)
+    end
+  end
+end
+CatImg.new(*ARGV).run
