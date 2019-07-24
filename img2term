@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 require 'tempfile'
 require 'shellwords'
+require 'awesome_print'
 
 # Converts any image to a terminal version of it
 class CatImg
@@ -51,8 +52,8 @@ class CatImg
     raw = `convert #{input.shellescape} txt:- | tail -n +2`.strip
     array = []
     raw.each_line do |line|
-      _, rgb = line.split(' ')
-      red, green, blue = rgb.tr('()', '').split(',')
+      rgb = line.split(' ').last
+      red, green, blue = rgb.tr('srgb()', '').split(',')
       ansi = ansi_color(red, green, blue)
       array.push(ansi)
     end
